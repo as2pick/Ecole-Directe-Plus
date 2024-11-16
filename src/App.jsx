@@ -1,7 +1,7 @@
-import { useState, useEffect, useRef, createContext, useMemo, lazy, Suspense } from "react";
+import { createContext, lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import {
-    Navigate,
     createBrowserRouter,
+    Navigate,
     RouterProvider
 } from "react-router-dom";
 
@@ -9,19 +9,19 @@ import { getISODate, sendToWebhook } from "./utils/utils";
 
 import "./App.css";
 
-import Root from "./components/Root";
-import Login from "./components/Login/Login";
-import ErrorPage from "./components/Errors/ErrorPage";
 import Canardman from "./components/Canardman/Canardman";
+import EdpUnblock from "./components/EdpUnblock/EdpUnblock";
+import ErrorPage from "./components/Errors/ErrorPage";
 import AppLoading from "./components/generic/Loading/AppLoading";
-import LandingPage from "./components/LandingPage/LandingPage";
-import EdpUnblock from "./components/EdpUnblock/EdpUnblock"
 import { useCreateNotification } from "./components/generic/PopUps/Notification";
-import { getGradeValue, calcAverage, findCategory, calcCategoryAverage, calcGeneralAverage, formatSkills, safeParseFloat, calcClassGeneralAverage, calcClassAverage } from "./utils/gradesTools";
-import { areOccurenciesEqual, createUserLists, encrypt, decrypt, getBrowser } from "./utils/utils";
-import { getCurrentSchoolYear } from "./utils/date";
-import { getProxiedURL } from "./utils/requests";
 import EdpuLogo from "./components/graphics/EdpuLogo";
+import LandingPage from "./components/LandingPage/LandingPage";
+import Login from "./components/Login/Login";
+import Root from "./components/Root";
+import { getCurrentSchoolYear } from "./utils/date";
+import { calcAverage, calcCategoryAverage, calcClassAverage, calcClassGeneralAverage, calcGeneralAverage, findCategory, formatSkills, getGradeValue, safeParseFloat } from "./utils/gradesTools";
+import { getProxiedURL } from "./utils/requests";
+import { areOccurenciesEqual, createUserLists, decrypt, encrypt, getBrowser } from "./utils/utils";
 
 // CODE-SPLITTING - DYNAMIC IMPORTS
 const Lab = lazy(() => import("./components/app/CoreApp").then((module) => { return { default: module.Lab } }));
@@ -39,7 +39,7 @@ const Feedback = lazy(() => import("./components/app/CoreApp").then((module) => 
 const LoginBottomSheet = lazy(() => import("./components/app/CoreApp").then((module) => { return { default: module.LoginBottomSheet } }));
 const QCM = lazy(() =>
     import("./components/app/CoreApp").then((module) => {
-      return { default: module.QCM };
+      return { default: module.Qcm };
     })
   );
 
@@ -2426,32 +2426,73 @@ export default function App({ edpFetch }) {
     }
 
 
-    async function fetchForms() {
-        const response = await edpFetch(
-          getProxiedURL(
-            "https://api.ecoledirecte.com/v3/edforms.awp?verbe=getlist&v=" +
-              apiVersion,
-            true
-          ),
-          {
-            method: "POST",
-            headers: {
-              "x-token": tokenState,
-            },
-            body: `data=${JSON.stringify({
-              anneeForms: getUserSettingValue("isSchoolYearEnabled")
-                ? getUserSettingValue("schoolYear").join("-")
-                : getCurrentSchoolYear().join("-"),
-              typeEntity: accountsListState[activeAccount].accountType,
-              idEntity: accountsListState[activeAccount].id,
-            })}`,
-            referrerPolicy: "no-referrer",
-          },
-          "json"
-        );
-        setTokenState((old) => response?.token || old);
-        return new Promise((resolve) => resolve(response));
-      }
+    async function fetchForms(controller = new AbortController()) {
+        abortControllers.current.push(controller);
+    
+        try {
+            const isGuest = accountsListState[activeAccount].firstName === "Guest";
+            let responseCode;
+    
+            if (!isGuest) {
+                const response = await edpFetch(
+                    getProxiedURL(
+                        `https://api.ecoledirecte.com/v3/edforms.awp?verbe=getlist&v=${apiVersion}`,
+                        true
+                    ),
+                    {
+                        method: "POST",
+                        headers: {
+                            "x-token": tokenState,
+                        },
+                        body: `data=${JSON.stringify({
+                            anneeForms: getUserSettingValue("isSchoolYearEnabled")
+                                ? getUserSettingValue("schoolYear").join("-")
+                                : getCurrentSchoolYear().join("-"),
+                            typeEntity: accountsListState[activeAccount].accountType,
+                            idEntity: accountsListState[activeAccount].id,
+                        })}`,
+                        signal: controller.signal,
+                        referrerPolicy: "no-referrer",
+                    },
+                    "json"
+                );
+    
+                responseCode = response.code;
+    
+                if (responseCode === 200) {
+                    changeUserData("formsList", response.data);
+                    console.log("Forms fetched successfully:", response.data);
+                    return response.data;
+                } else if (responseCode === 520 || responseCode === 525) {
+                    requireLogin(); // Token invalide
+                    return null;
+                }
+            }
+    
+            // Gestion des données locales pour les invités
+            if (isGuest || responseCode === 49969) {
+                const localData = await import("./data/forms.json");
+                setUserData("formsList", localData.data);
+                
+                return localData.data;
+            }
+    
+            console.error("Failed to fetch forms:", responseCode);
+            return null;
+    
+        } catch (error) {
+            if (error.name === "AbortError") {
+                console.log("Fetch forms request was aborted");
+            } else {
+                console.error("Error fetching forms:", error);
+            }
+            return null;
+        } finally {
+            abortControllers.current.splice(abortControllers.current.indexOf(controller), 1);
+        }
+    }
+    
+    
     /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
     //                                                                                                                                                                                 //
     //                                                                              End Of Fetch Functions                                                                             //

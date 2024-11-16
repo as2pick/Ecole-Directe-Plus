@@ -1,36 +1,44 @@
-import { useContext, useState, useEffect, useRef } from "react";
+import { useContext, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { AppContext } from "../../../App";
 import RadioButton from "../../generic/UserInputs/RadioButton";
 import EyeVisible from "../../graphics/EyeVisible";
 
 import {
+  Window,
+  WindowContent,
+  WindowHeader,
   WindowsContainer,
   WindowsLayout,
-  Window,
-  WindowHeader,
-  WindowContent,
 } from "../../generic/Window";
 import "./Qcm.css";
 
 export default function QCM() {
   const navigate = useNavigate();
-  const { fetchForms } = useContext(AppContext);
+  const { fetchForms, useUserData } = useContext(AppContext);
   const [selectedform, setselectedform] = useState(null);
   const [forms, setForms] = useState([]);
 
+  const userData = useUserData()
+  const test = userData.get("formsList")
+
   useEffect(() => {
-    fetchForms().then((e) => {
-      setForms(e.data);
-    });
-    if (location.hash !== "") {
-      setselectedform(
-        forms.filter(
-          (e) => e.formulaire.id === parseInt(location.hash.slice(1))
-        )[0] ?? null
-      );
-    }
-  }, [fetchForms]);
+    const controller = new AbortController();
+
+    fetchForms(controller).then((val) => {setForms(val)
+      
+    })
+    
+    // if (location.hash !== "") {
+      //   setselectedform(
+        //     forms.filter(
+          //       (e) => e.formulaire.id === parseInt(location.hash.slice(1))
+          //     )[0] ?? null
+          //   );
+          
+          // }
+        }, []);
+  console.log(forms)
   const handleSelection = (evt, key) => {
     navigate("#" + key);
   };
